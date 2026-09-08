@@ -1,0 +1,13 @@
+# Collector output -- contains your org's control posture; keep it out of git.
+*.db
+*.db-wal
+*.db-shm
+*.csv
+summary.txt
+
+# Credentials. Never commit these.
+*.pem
+*.key
+
+__pycache__/
+*.pyc

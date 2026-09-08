@@ -1,0 +1,72 @@
+name: governance-collect
+
+on:
+  schedule:
+    - cron: "0 5 * * *"          # nightly, before the working day
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Stop after N repos (smoke test)"
+        required: false
+
+permissions:
+  contents: read                 # the App key does the API work, not GITHUB_TOKEN
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest       # or your self-hosted runner label
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Restores the previous database, which carries the ETag cache AND the
+      # run history -- this is what makes every run after the first nearly free.
+      - uses: actions/cache@v4
+        with:
+          path: governance.db
+          key: governance-db-${{ github.run_id }}
+          restore-keys: governance-db-
+
+      - name: Write App private key
+        env:
+          APP_PRIVATE_KEY: ${{ secrets.GOVERNANCE_APP_PRIVATE_KEY }}
+        run: |
+          umask 077
+          printf '%s' "$APP_PRIVATE_KEY" > app.pem
+
+      - name: Collect
+        env:
+          APP_ID: ${{ secrets.GOVERNANCE_APP_ID }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          ARGS=""
+          [ -n "$LIMIT" ] && ARGS="--limit $LIMIT"
+          python3 gh-governance-collect.py \
+            --org "${{ github.repository_owner }}" \
+            --app-id "$APP_ID" --private-key app.pem \
+            --db governance.db \
+            --properties --expand-teams \
+            --summary --summary-out summary.txt --csv coverage.csv $ARGS
+
+      - name: Remove the key
+        if: always()
+        run: rm -f app.pem
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: governance-${{ github.run_number }}
+          path: |
+            governance.db
+            coverage.csv
+            summary.txt
+          retention-days: 90
+
+      - name: Publish the rollup to the run summary
+        if: always()
+        run: |
+          { echo '```'; cat summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
