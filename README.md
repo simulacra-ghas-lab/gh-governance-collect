@@ -53,7 +53,7 @@ Get-FileHash -Algorithm SHA256 .\gh-governance-collect.py   # Windows PowerShell
 ```
 
 ```
-df6940f9989481d94fe61051729cbefc07afe799d6e8d8cbf7ae2d8c05661723
+78cde8be1460f532ad46ff231aa28f6111b7f89e75e6f34ae391dc35bf6a2066
 ```
 
 If it doesn't match, the likely cause is **CRLF line endings**, not a bad copy — the file still
@@ -160,13 +160,34 @@ reproducible without you present.
 The workflow prints the rollup to the run summary page, so the nightly number is readable without
 downloading anything, and keeps the database and CSV as a 90-day artifact.
 
-**Don't drop the `actions/cache` step.** The ETag cache lives inside `governance.db`. Without it
-every scheduled run is a first run and pays full price; with it, unchanged repositories come back
-`304` and cost no quota at all. It also keeps run history in one file, so trend is a
-`GROUP BY run_id` rather than a second job.
+### Where the database lives
+
+An Actions runner is destroyed when the job ends, so `governance.db` survives only because two
+steps copy it out. They are not interchangeable:
+
+| | Mechanism | Lifetime | What it's for |
+|---|---|---|---|
+| **Cache** | `actions/cache/restore` at the start, `actions/cache/save` at the end | Evicted after **7 days** untouched; LRU over the repo's 10 GB budget | Carrying the ETag cache and run history into the next run. Best-effort. |
+| **Artifact** | `actions/upload-artifact` | **90 days**, per run, downloadable | The retained evidence copy: this database, this CSV, this timestamp. |
+
+Losing the cache costs you **one full-price run**, not data — the next run rebuilds the ETag
+cache from scratch and carries on. But it does reset the accumulated run history in that file,
+so if the *trend* matters beyond 90 days, don't rely on either of these: have the job push
+`coverage.csv` into whatever reporting database the dashboard already reads, or commit it to a
+data branch. Cache and artifacts are convenience and evidence respectively; neither is a
+system of record.
+
+Restore and save are split (rather than a single `actions/cache`) so the save still runs when a
+later step fails. Otherwise one bad run throws away the cache and the next one pays full price
+for no reason.
+
+The database is written with SQLite in WAL mode, and the collector checkpoints the WAL back into
+the main file before exiting — so the single `governance.db` that gets cached or uploaded is
+complete. No `-wal` or `-shm` sidecar needs to be copied alongside it.
 
 If Actions is restricted, the same script runs unchanged on a build agent or a small VM under
-cron. It has no dependencies to install and needs nothing inbound.
+cron. It has no dependencies to install and needs nothing inbound. There the database simply
+persists on disk and none of the above applies.
 
 ---
 

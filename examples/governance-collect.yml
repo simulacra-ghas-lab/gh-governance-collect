@@ -23,12 +23,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Restores the previous database, which carries the ETag cache AND the
-      # run history -- this is what makes every run after the first nearly free.
-      - uses: actions/cache@v4
+      # Restore the previous database. It carries the ETag cache AND the run
+      # history, which is what makes every run after the first nearly free.
+      # Split restore/save (rather than actions/cache) so the save still happens
+      # when a later step fails -- otherwise a bad run throws away the cache.
+      - name: Restore previous database
+        uses: actions/cache/restore@v4
         with:
           path: governance.db
-          key: governance-db-${{ github.run_id }}
+          key: governance-db-
           restore-keys: governance-db-
 
       - name: Write App private key
@@ -55,6 +58,16 @@ jobs:
       - name: Remove the key
         if: always()
         run: rm -f app.pem
+
+      # Cache is best-effort: GitHub evicts entries untouched for 7 days and
+      # applies an LRU over the repo's 10 GB budget. Losing it costs one
+      # full-price run, not data -- the artifact below is the retained copy.
+      - name: Save database for the next run
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: governance.db
+          key: governance-db-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4
         if: always()

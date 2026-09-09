@@ -52,7 +52,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 USER_AGENT = "gh-governance-collect/" + VERSION
 DEFAULT_API = os.environ.get("GITHUB_API", "https://api.github.com").rstrip("/")
 
@@ -356,6 +356,22 @@ class Store:
     def query(self, sql: str, params=()):
         with self.lock:
             return self.conn.execute(sql, params).fetchall()
+
+    def close(self) -> None:
+        """Fold the write-ahead log back into the main database file, then close.
+
+        This matters whenever something else copies the database out afterwards.
+        A CI cache or artifact step archives `governance.db` but not its `-wal`
+        sidecar, so any write still sitting in the WAL would be dropped from the
+        copy. Checkpointing here makes the single file self-contained rather than
+        relying on interpreter shutdown to do it.
+        """
+        with self.lock:
+            try:
+                self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
+            self.conn.close()
 
 
 # --------------------------------------------------------------------------
@@ -1016,6 +1032,7 @@ def main(argv=None) -> int:
         export_csv(store, run_id, args.csv)
     if args.summary:
         print_summary(store, run_id, args.org, args, env_names_seen)
+    store.close()
     return 0
 
 
