@@ -141,8 +141,8 @@ Installation tokens last an hour and are refreshed automatically mid-run.
 
 ## 4. Schedule it
 
-`examples/governance-collect.yml` is a ready-to-use workflow. It lives in `examples/` here on
-purpose — in `.github/workflows/` it would fire on this repo's schedule.
+`governance-collect.yml` is a ready-to-use workflow. It sits at the repo root on purpose — in
+`.github/workflows/` it would fire on this repo's own schedule.
 
 **Where it goes:** copy it to `.github/workflows/governance-collect.yml` in an **internal repo
 inside the org you're measuring** — an existing admin/platform repo is ideal. Commit
